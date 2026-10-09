@@ -1,228 +1,115 @@
-from flask import Flask, request, redirect, render_template_string, send_from_directory, Response
-import sqlite3, os, datetime, csv, io
-
-app = Flask(__name__)
-DB="hostel_world_500.db"
-CAPACITY=500
-
-def init():
-    con=sqlite3.connect(DB); c=con.cursor()
-    c.execute("""CREATE TABLE IF NOT EXISTS students (
-        id INTEGER PRIMARY KEY, name TEXT, roll TEXT UNIQUE, room TEXT, bed TEXT,
-        batch TEXT, mobile TEXT, guardian TEXT, status TEXT DEFAULT 'Active')""")
-    c.execute("CREATE INDEX IF NOT EXISTS idx_roll ON students(roll)")
-    c.execute("CREATE INDEX IF NOT EXISTS idx_room ON students(room)")
-    c.execute("""CREATE TABLE IF NOT EXISTS attendance (
-        id INTEGER PRIMARY KEY, date TEXT, student_id INTEGER, status TEXT)""")
-    c.execute("""CREATE TABLE IF NOT EXISTS visitors (
-        id INTEGER PRIMARY KEY, name TEXT, nid TEXT, meet_to TEXT, entry TEXT, purpose TEXT, exit TEXT)""")
-    c.execute("""CREATE TABLE IF NOT EXISTS gatepass (
-        id INTEGER PRIMARY KEY, student_id INTEGER, reason TEXT, from_time TEXT, to_time TEXT, status TEXT DEFAULT 'Pending')""")
-    c.execute("""CREATE TABLE IF NOT EXISTS complaints (
-        id INTEGER PRIMARY KEY, student_id INTEGER, type TEXT, details TEXT, status TEXT DEFAULT 'Pending', date TEXT)""")
-    c.execute("""CREATE TABLE IF NOT EXISTS meals (
-        id INTEGER PRIMARY KEY, date TEXT, student_id INTEGER, breakfast INT DEFAULT 1, lunch INT DEFAULT 1, dinner INT DEFAULT 1, extra INT DEFAULT 0, rate INT)""")
-    c.execute("""CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)""")
-    c.execute("INSERT OR IGNORE INTO settings VALUES ('meal_rate','60')")
-    c.execute("INSERT OR IGNORE INTO settings VALUES ('currency','BDT')")
-    c.execute("INSERT OR IGNORE INTO settings VALUES ('hostel_name','WorldMed Hostel - 500 Seats')")
-    con.commit(); con.close()
-init()
-
-def get_setting(k):
-    con=sqlite3.connect(DB); c=con.cursor()
-    c.execute("SELECT value FROM settings WHERE key=?", (k,))
-    r=c.fetchone(); con.close()
-    return r[0] if r else ""
-
-BASE="""
-<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>WorldMed Hostel Super 500</title>
-<link rel="manifest" href="/static/manifest.json">
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>WorldMed Hostel Super 500 - Worldwide + Mess Billing</title>
+<link rel="manifest" href="data:application/json;base64,eyJuYW1lIjoiV29ybGRNZWQgSG9zdGVsIDUwMCIsInNob3J0X25hbWUiOiJIb3N0ZWwgNTIwIiwic3RhcnRfdXJsIjoiLiIsImRpc3BsYXkiOiJzdGFuZGFsb25lIiwidGhlbWVfY29sb3IiOiIjMDA1RUI4In0=">
 <style>
-*{box-sizing:border-box}body{margin:0;font-family:system-ui;background:#f0f6ff;padding:10px}
-.header{background:#005EB8;color:#fff;padding:14px;border-radius:18px;display:flex;gap:12px;align-items:center}
-.header img{width:54px;height:54px;border-radius:50%;background:white;padding:4px}
-.card{background:white;border-radius:14px;padding:14px;margin:10px 0;box-shadow:0 2px 10px #0001}
-.grid{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px}
-@media(max-width:700px){.grid{grid-template-columns:1fr 1fr}}
-.stat{padding:12px;border-radius:12px;color:white;text-align:center}.stat b{font-size:22px;display:block}
-.btn{width:100%;padding:11px;border:0;border-radius:10px;font-weight:bold;margin:5px 0;cursor:pointer}
+*{box-sizing:border-box;margin:0}body{font-family:system-ui;background:#f0f6ff;padding:8px}
+.header{background:#005EB8;color:#fff;padding:14px;border-radius:16px;display:flex;gap:10px;align-items:center}
+.header.logo{width:50px;height:50px;background:#fff;color:#005EB8;border-radius:50%;display:grid;place-items:center;font-size:28px}
+.card{background:#fff;border-radius:12px;padding:12px;margin:10px 0;box-shadow:0 2px 8px #0001}
+.grid4{display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px}
+@media(max-width:700px){.grid4{grid-template-columns:1fr 1fr}}
+.stat{padding:12px;border-radius:10px;color:#fff;text-align:center}.stat b{font-size:22px;display:block}
+.btn{width:100%;padding:10px;border:0;border-radius:8px;font-weight:bold;cursor:pointer;margin:4px 0}
 .btn-blue{background:#005EB8;color:#FFD700}.btn-gold{background:#FFD700;color:#005EB8}
-input,select,textarea{width:100%;padding:10px;margin:5px 0;border:1px solid #cbd5e1;border-radius:8px}
-table{width:100%;border-collapse:collapse}td,th{border:1px solid #e2e8f0;padding:7px;font-size:12px}th{background:#005EB8;color:white}
-.nav{display:flex;gap:6px;overflow:auto;padding:8px 0}.nav a{padding:7px 10px;background:white;border-radius:20px;text-decoration:none;color:#005EB8;border:1px solid #005EB8;font-size:12px;white-space:nowrap}
-.nav a.active{background:#005EB8;color:#FFD700}
-</style></head><body>
-<div class="header"><img src="/static/hostel-world-512.png"><div><b>WorldMed Hostel Super</b><br><small>500 Seats - Worldwide Edition - Mess + Billing</small><br><small style="color:#FFD700">Made by Sumaiya Mohammad | Built in Bangladesh for Global South</small></div></div>
+input,select{width:100%;padding:9px;margin:4px 0;border:1px solid #cbd5e1;border-radius:7px}
+table{width:100%;border-collapse:collapse}td,th{border:1px solid #e2e8f0;padding:6px;font-size:12px}th{background:#005EB8;color:#fff}
+.nav{display:flex;gap:6px;overflow:auto;padding:6px 0}.nav button{padding:7px 12px;border-radius:20px;border:1px solid #005EB8;background:#fff;color:#005EB8;white-space:nowrap}
+.nav button.active{background:#005EB8;color:#FFD700}
+</style>
+</head>
+<body>
+<div class="header"><div class="logo">🛏️</div><div><b>WorldMed Hostel Super - 500</b><br><small>Worldwide Edition - Mess Billing Auto</small><br><small style="color:#FFD700">Made by Sumaiya Mohammad | Bangladesh for Global South</small></div></div>
+
 <div class="nav">
-<a href="/" class="{{'active' if page=='home' else ''}}">🏠 Dashboard</a>
-<a href="/students" class="{{'active' if page=='students' else ''}}">🛏️ Students</a>
-<a href="/attendance" class="{{'active' if page=='attendance' else ''}}">✅ Attendance</a>
-<a href="/meals" class="{{'active' if page=='meals' else ''}}">🍽️ Mess & Billing</a>
-<a href="/gatepass" class="{{'active' if page=='gatepass' else ''}}">🚪 GatePass</a>
-<a href="/visitors" class="{{'active' if page=='visitors' else ''}}">👥 Visitors</a>
-<a href="/complaints" class="{{'active' if page=='complaints' else ''}}">⚠️ Complaints</a>
-<a href="/settings" class="{{'active' if page=='settings' else ''}}">⚙️ Settings</a>
+<button onclick="show('home')" id="b-home" class="active">🏠 Dashboard</button>
+<button onclick="show('students')" id="b-students">🛏️ Students 500</button>
+<button onclick="show('meals')" id="b-meals">🍽️ Mess & Billing</button>
+<button onclick="show('att')" id="b-att">✅ Attendance</button>
+<button onclick="show('settings')" id="b-settings">⚙️ Settings</button>
 </div>
-CONTENT
-<script>if('serviceWorker' in navigator)navigator.serviceWorker.register('/static/sw.js')</script>
-</body></html>
-"""
 
-def render(content, page='home'):
-    return render_template_string(BASE.replace('CONTENT', content), page=page)
+<div id="home" class="page">
+<div class="grid4">
+<div class="stat" style="background:#005EB8"><b id="s-total">0/500</b>Occupied</div>
+<div class="stat" style="background:#16a34a"><b id="s-vac">500</b>Vacant</div>
+<div class="stat" style="background:#0f172a"><b id="s-bill">0 BDT</b>Mess This Month</div>
+<div class="stat" style="background:#d97706"><b id="s-rate">60 BDT</b>Per Meal</div>
+</div>
+<div class="card"><b>🌍 Worldwide Features</b><br>✅ 500 Students LocalStorage (Offline)<br>✅ Mess ON/OFF per day (B/L/D + Extra)<br>✅ Auto Billing: (B+L+D+Extra) x Rate<br>✅ Search + Pagination 50<br>✅ CSV Export/Import<br><small>Made for Hostel Superintendents in BD, India, Africa</small></div>
+</div>
 
-@app.route('/')
-def home():
-    con=sqlite3.connect(DB); c=con.cursor()
-    c.execute("SELECT COUNT(*) FROM students WHERE status='Active'"); active=c.fetchone()[0]
-    vacant=CAPACITY-active
-    today=datetime.date.today().isoformat()
-    c.execute("SELECT COUNT(*) FROM attendance WHERE date=? AND status='Present'", (today,)); present=c.fetchone()[0]
-    c.execute("SELECT COUNT(*) FROM gatepass WHERE status='Pending'"); pending=c.fetchone()[0]
-    c.execute("SELECT COUNT(*) FROM meals WHERE date=?", (today,)); meal_today=c.fetchone()[0]
-    rate=int(get_setting('meal_rate'))
-    c.execute("SELECT SUM((breakfast+lunch+dinner)*rate + extra*rate) FROM meals WHERE substr(date,1,7)=?", (today[:7],)); month_total=c.fetchone()[0] or 0
-    con.close()
-    return render(f"""
-    <div class="grid">
-        <div class="stat" style="background:#005EB8"><b>{active}/500</b>Occupied</div>
-        <div class="stat" style="background:#16a34a"><b>{vacant}</b>Vacant</div>
-        <div class="stat" style="background:#0f172a"><b>{present}</b>Present Today</div>
-        <div class="stat" style="background:#d97706"><b>{month_total} {get_setting('currency')}</b>Mess This Month</div>
-    </div>
-    """,'home')
-@app.route('/students', methods=['GET','POST'])
-def students():
-    con=sqlite3.connect(DB); c=con.cursor()
-    if request.method=='POST' and 'bulk' not in request.files:
-        try:
-            c.execute("INSERT INTO students (name,roll,room,bed,batch,mobile,guardian) VALUES (?,?,?,?,?,?,?)",
-                      (request.form['name'],request.form['roll'],request.form['room'],request.form['bed'],request.form['batch'],request.form['mobile'],request.form['guardian']))
-            con.commit()
-        except: pass
-    if 'bulk' in request.files:
-        f=request.files['bulk']
-        if f.filename:
-            data=f.read().decode('utf-8').splitlines()
-            reader=csv.DictReader(data)
-            for row in reader:
-                try:
-                    c.execute("INSERT OR IGNORE INTO students (name,roll,room,bed,batch,mobile,guardian) VALUES (?,?,?,?,?,?,?)",
-                              (row.get('name') or row.get('Name'), row.get('roll') or row.get('Roll'), row.get('room') or row.get('Room'), row.get('bed') or row.get('Bed'), row.get('batch') or row.get('Batch'), row.get('mobile') or row.get('Mobile'), row.get('guardian') or row.get('Guardian')))
-                except: pass
-            con.commit()
-    q=request.args.get('q',''); page=int(request.args.get('page',0)); limit=50; offset=page*limit
-    if q:
-        c.execute("SELECT * FROM students WHERE name LIKE? OR roll LIKE? OR room LIKE? LIMIT? OFFSET?", (f"%{q}%",f"%{q}%",f"%{q}%",limit,offset))
-    else:
-        c.execute("SELECT * FROM students LIMIT? OFFSET?", (limit,offset))
-    rows=c.fetchall()
-    c.execute("SELECT COUNT(*) FROM students"); total=c.fetchone()[0]
-    con.close()
-    tr="".join([f"<tr><td>{r[2]}<br><small>{r[1]}</small></td><td>{r[3]}-{r[4]}</td><td>{r[5]}</td><td>{r[6]}</td><td><a href='/students?del={r[0]}'>Del</a></td></tr>" for r in rows])
-    if 'del' in request.args:
-        con=sqlite3.connect(DB); c=con.cursor(); c.execute("DELETE FROM students WHERE id=?", (request.args['del'],)); con.commit(); con.close(); return redirect('/students')
-    return render(f"""
-    <div class="card"><b>🛏️ Add Student</b>
-    <form method="POST"><div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
-    <input name="name" placeholder="Name" required><input name="roll" placeholder="Roll / ID" required>
-    <input name="room" placeholder="Room No" required><input name="bed" placeholder="Bed No">
-    <input name="batch" placeholder="Batch"><input name="mobile" placeholder="Mobile">
-    <input name="guardian" placeholder="Guardian" style="grid-column:span 2">
-    </div><button class="btn btn-blue">Add</button></form>
-    <hr><b>📤 Bulk Import 500 CSV</b><form method="POST" enctype="multipart/form-data"><input type="file" name="bulk" accept=".csv" required><button class="btn btn-gold">Import CSV - 500 in 10 sec</button></form>
-    </div>
-    <div class="card"><form method="GET"><div style="display:flex;gap:6px"><input name="q" placeholder="Search" value="{q}"><button class="btn btn-blue" style="width:100px">Search</button></div></form>
-    <small>Total: {total}/500 | Page {page+1}</small>
-    <table><tr><th>Roll & Name</th><th>Room-Bed</th><th>Batch</th><th>Mobile</th><th>X</th></tr>{tr}</table>
-    <div style="display:flex;gap:6px"><a href="/students?page={max(0,page-1)}&q={q}"><button class="btn btn-blue">Prev 50</button></a><a href="/students?page={page+1}&q={q}"><button class="btn btn-blue">Next 50</button></a></div>
-    </div>
-    """,'students')
+<div id="students" class="page" style="display:none">
+<div class="card"><b>🛏️ Add Student</b><div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
+<input id="n-name" placeholder="Name"><input id="n-roll" placeholder="Roll ID">
+<input id="n-room" placeholder="Room"><input id="n-bed" placeholder="Bed">
+<input id="n-batch" placeholder="Batch"><input id="n-mob" placeholder="Mobile">
+</div><button class="btn btn-blue" onclick="addStudent()">Add Student</button>
+<hr><b>📤 Bulk CSV Import (500)</b><br><small>Format: name,roll,room,bed,batch,mobile</small>
+<input type="file" id="csv" accept=".csv"><button class="btn btn-gold" onclick="importCSV()">Import 500 in 10 sec</button>
+</div>
+<div class="card"><input id="q" placeholder="Search name/roll/room" oninput="renderStudents()"><small id="s-info"></small>
+<table><thead><tr><th>Roll & Name</th><th>Room-Bed</th><th>Batch</th><th>Action</th></tr></thead><tbody id="s-body"></tbody></table>
+<div style="display:flex;gap:6px"><button class="btn btn-blue" onclick="prev()">Prev 50</button><button class="btn btn-blue" onclick="next()">Next 50</button></div>
+<button class="btn btn-gold" onclick="exportCSV()">Export CSV</button></div>
+</div>
 
-@app.route('/meals', methods=['GET','POST'])
-def meals_page():
-    today=datetime.date.today().isoformat()
-    rate=int(get_setting('meal_rate') or 60); currency=get_setting('currency')
-    con=sqlite3.connect(DB); c=con.cursor()
-    if request.method=='POST' and 'billing' not in request.args:
-        date=request.form['date']
-        for key in list(request.form.keys()):
-            if key.startswith('b_'):
-                sid=key[2:]
-                b=1 if f"b_{sid}" in request.form else 0
-                l=1 if f"l_{sid}" in request.form else 0
-                d=1 if f"d_{sid}" in request.form else 0
-                extra=int(request.form.get(f"e_{sid}",0) or 0)
-                c.execute("DELETE FROM meals WHERE date=? AND student_id=?", (date,sid))
-                c.execute("INSERT INTO meals (date,student_id,breakfast,lunch,dinner,extra,rate) VALUES (?,?,?,?,?,?,?)",(date,sid,b,l,d,extra,rate))
-        con.commit()
-    if 'billing' in request.args:
-        month=request.args.get('month', today[:7])
-        c.execute("SELECT s.name,s.roll,s.room, SUM((m.breakfast+m.lunch+m.dinner)*m.rate + m.extra*m.rate) as total, COUNT(m.date) as days, SUM(m.breakfast+m.lunch+m.dinner) as meals FROM meals m JOIN students s ON s.id=m.student_id WHERE substr(m.date,1,7)=? GROUP BY s.id ORDER BY total DESC", (month,))
-        bills=c.fetchall(); con.close()
-        tr="".join([f"<tr><td>{b[1]}<br>{b[0]} ({b[2]})</td><td>{b[4]}</td><td>{b[5]}</td><td><b>{b[3]} {currency}</b></td></tr>" for b in bills])
-        return render(f"""
-        <div class="card"><b>💰 Mess Billing Auto</b><form method="GET"><input type="month" name="month" value="{month}"><input type="hidden" name="billing" value="1"><button class="btn btn-blue">View Month</button></form>
-        <table><tr><th>Student</th><th>Days</th><th>Meals</th><th>Bill</th></tr>{tr}</table>
-        <button class="btn btn-gold" onclick="window.print()">Print PDF</button></div>
-        """,'meals')
-    date=request.args.get('date',today)
-    c.execute("SELECT id,name,roll,room FROM students WHERE status='Active' ORDER BY room LIMIT 80"); studs=c.fetchall()
-    c.execute("SELECT student_id,breakfast,lunch,dinner,extra FROM meals WHERE date=?", (date,)); md={r[0]:r[1:] for r in c.fetchall()}
-    con.close()
-    rows="".join([f"<tr><td>{s[3]} {s[2]}<br><small>{s[1]}</small></td><td><input type='checkbox' name='b_{s[0]}' {'checked' if md.get(s[0],(1,1,1,0))[0] else ''}> B</td><td><input type='checkbox' name='l_{s[0]}' {'checked' if md.get(s[0],(1,1,1,0))[1] else ''}> L</td><td><input type='checkbox' name='d_{s[0]}' {'checked' if md.get(s[0],(1,1,1,0))[2] else ''}> D</td><td><input type='number' name='e_{s[0]}' value='{md.get(s[0],(1,1,1,0))[3]}' style='width:50px'></td></tr>" for s in studs])
-    return render(f"""
-    <div class="card"><b>🍽️ Meal ON/OFF - {date} - {rate} {currency}</b>
-    <form method="POST"><input type="date" name="date" value="{date}">
-    <table><tr><th>Student</th><th>B</th><th>L</th><th>D</th><th>Extra</th></tr>{rows}</table>
-    <button class="btn btn-blue">Save Meals</button></form>
-    <a href="/meals?billing=1"><button class="btn btn-gold">View Monthly Billing</button></a></div>
-    """,'meals')
+<div id="meals" class="page" style="display:none">
+<div class="card"><b>🍽️ Mess Meal ON/OFF + Billing</b><br>
+<input type="date" id="m-date"><input type="month" id="m-month" style="margin-top:6px">
+<div style="display:flex;gap:6px"><button class="btn btn-blue" onclick="renderMeals()">Load Day</button><button class="btn btn-gold" onclick="renderBilling()">View Monthly Billing</button></div>
+<small>Rate: <span id="rateShow">60</span> <span id="currShow">BDT</span> per meal | Untick if absent | Extra=guest meal</small>
+<table><thead><tr><th>Student</th><th>B</th><th>L</th><th>D</th><th>Extra</th></tr></thead><tbody id="m-body"></tbody></table>
+<button class="btn btn-blue" onclick="saveMeals()">Save Meals Today</button>
+<hr><div id="bill-area"></div>
+<button class="btn btn-gold" onclick="window.print()">Print Bills PDF</button>
+</div>
+</div>
 
-# Add attendance, gatepass, visitors, complaints, settings, export same as before...
+<div id="att" class="page" style="display:none">
+<div class="card"><b>✅ Night Attendance</b><input type="date" id="a-date"><button class="btn btn-blue" onclick="renderAtt()">Load</button>
+<table><thead><tr><th>Student</th><th>Status</th></tr></thead><tbody id="a-body"></tbody></table><button class="btn btn-blue" onclick="saveAtt()">Save Attendance</button></div>
+</div>
 
-@app.route('/attendance', methods=['GET','POST'])
-def attendance():
-    today=datetime.date.today().isoformat()
-    con=sqlite3.connect(DB); c=con.cursor()
-    if request.method=='POST':
-        date=request.form['date']
-        for sid,status in request.form.items():
-            if sid.startswith('st_'):
-                id=sid.split('_')[1]
-                c.execute("DELETE FROM attendance WHERE date=? AND student_id=?", (date,id))
-                c.execute("INSERT INTO attendance (date,student_id,status) VALUES (?,?,?)", (date,id,status))
-        con.commit()
-    date=request.args.get('date',today)
-    c.execute("SELECT id,name,roll,room FROM students WHERE status='Active' ORDER BY room LIMIT 100")
-    studs=c.fetchall()
-    c.execute("SELECT student_id,status FROM attendance WHERE date=?", (date,)); att=dict(c.fetchall())
-    con.close()
-    rows="".join([f"<tr><td>{s[3]}-{s[2]}<br>{s[1]}</td><td><select name='st_{s[0]}'><option {'selected' if att.get(s[0])=='Present' else ''}>Present</option><option {'selected' if att.get(s[0])=='Absent' else ''}>Absent</option></select></td></tr>" for s in studs])
-    return render(f"""<div class="card"><b>✅ Attendance - {date}</b><form method="POST"><input type="date" name="date" value="{date}"><table><tr><th>Student</th><th>Status</th></tr>{rows}</table><button class="btn btn-blue">Save</button></form></div>""",'attendance')
+<div id="settings" class="page" style="display:none">
+<div class="card"><b>⚙️ Worldwide Settings</b><label>Hostel Name</label><input id="set-hname" value="WorldMed Hostel - 500 Seats"><label>Meal Rate Per Meal</label><input id="set-rate" type="number" value="60"><label>Currency</label><select id="set-curr"><option>BDT</option><option>USD</option><option>INR</option><option>NGN</option><option>KES</option></select><button class="btn btn-blue" onclick="saveSettings()">Save Settings</button></div>
+</div>
 
-@app.route('/settings', methods=['GET','POST'])
-def settings():
-    con=sqlite3.connect(DB); c=con.cursor()
-    if request.method=='POST':
-        c.execute("UPDATE settings SET value=? WHERE key='meal_rate'", (request.form['rate'],))
-        c.execute("UPDATE settings SET value=? WHERE key='currency'", (request.form['currency'],))
-        con.commit()
-    c.execute("SELECT key,value FROM settings"); s=dict(c.fetchall()); con.close()
-    return render(f"""<div class="card"><form method="POST"><input name="rate" type="number" value="{s.get('meal_rate','60')}"><select name="currency"><option>BDT</option><option>USD</option><option>INR</option></select><button class="btn btn-blue">Save</button></form></div>""",'settings')
+<script>
+let students=JSON.parse(localStorage.getItem('ww_students')||'[]');
+let meals=JSON.parse(localStorage.getItem('ww_meals')||'{}'); // key: date -> {id:{b,l,d,e}}
+let att=JSON.parse(localStorage.getItem('ww_att')||'{}');
+let settings=JSON.parse(localStorage.getItem('ww_set')||'{"rate":60,"curr":"BDT","hname":"WorldMed Hostel - 500 Seats"}');
+let page=0; const LIM=50;
+document.getElementById('set-rate').value=settings.rate; document.getElementById('set-curr').value=settings.curr; document.getElementById('set-hname').value=settings.hname;
+document.getElementById('m-date').valueAsDate=new Date(); document.getElementById('m-month').value=new Date().toISOString().slice(0,7); document.getElementById('a-date').valueAsDate=new Date();
 
-@app.route('/export')
-def export():
-    con=sqlite3.connect(DB); c=con.cursor(); c.execute("SELECT * FROM students"); rows=c.fetchall(); con.close()
-    output=io.StringIO(); writer=csv.writer(output); writer.writerow(['id','name','roll','room','bed','batch','mobile','guardian','status'])
-    writer.writerows(rows)
-    return Response(output.getvalue(), mimetype="text/csv", headers={"Content-disposition":"attachment; filename=hostel_500.csv"})
+function show(id){document.querySelectorAll('.page').forEach(p=>p.style.display='none'); document.getElementById(id).style.display='block'; document.querySelectorAll('.nav button').forEach(b=>b.classList.remove('active')); document.getElementById('b-'+id).classList.add('active'); if(id=='students')renderStudents(); if(id=='meals')renderMeals(); if(id=='home')updateHome(); if(id=='att')renderAtt();}
+function save(){localStorage.setItem('ww_students',JSON.stringify(students)); localStorage.setItem('ww_meals',JSON.stringify(meals)); localStorage.setItem('ww_att',JSON.stringify(att)); localStorage.setItem('ww_set',JSON.stringify(settings)); updateHome();}
+function updateHome(){document.getElementById('s-total').innerText=students.length+'/500'; document.getElementById('s-vac').innerText=500-students.length; document.getElementById('s-rate').innerText=settings.rate+' '+settings.curr; document.getElementById('rateShow').innerText=settings.rate; document.getElementById('currShow').innerText=settings.curr; let month=new Date().toISOString().slice(0,7); let total=0; Object.keys(meals).forEach(d=>{if(d.startsWith(month)){Object.values(meals[d]).forEach(m=>{total+=(m.b+m.l+m.d+m.e)*settings.rate})}}); document.getElementById('s-bill').innerText=total+' '+settings.curr;}
 
-@app.route('/static/<path:f>')
-def static_f(f): return send_from_directory('static', f)
+function addStudent(){let n={id:Date.now(),name:document.getElementById('n-name').value,roll:document.getElementById('n-roll').value,room:document.getElementById('n-room').value,bed:document.getElementById('n-bed').value,batch:document.getElementById('n-batch').value,mobile:document.getElementById('n-mob').value}; if(!n.name||!n.roll)return alert('Name & Roll needed'); students.push(n); save(); renderStudents();}
 
-if __name__=='__main__':
-    os.makedirs('static', exist_ok=True)
-    app.run(host='0.0.0.0', port=5000)
+function renderStudents(){let q=document.getElementById('q').value.toLowerCase(); let filtered=students.filter(s=> (s.name+s.roll+s.room).toLowerCase().includes(q)); document.getElementById('s-info').innerText=`Total ${filtered.length}/500 | Page ${page+1}`; let slice=filtered.slice(page*LIM,(page+1)*LIM); document.getElementById('s-body').innerHTML=slice.map(s=>`<tr><td>${s.roll}<br><small>${s.name}</small></td><td>${s.room}-${s.bed}</td><td>${s.batch}</td><td><button onclick="delStu(${s.id})">Del</button></td></tr>`).join('');}
+function delStu(id){students=students.filter(s=>s.id!=id); save(); renderStudents();}
+function prev(){page=Math.max(0,page-1); renderStudents();} function next(){page++; renderStudents();}
+
+function importCSV(){let file=document.getElementById('csv').files[0]; if(!file)return; let reader=new FileReader(); reader.onload=e=>{let lines=e.target.result.split('\n'); let hdr=lines[0].split(',').map(h=>h.trim().toLowerCase()); for(let i=1;i<lines.length;i++){if(!lines[i].trim())continue; let vals=lines[i].split(','); let o={}; hdr.forEach((h,j)=>o[h]=vals[j]?.trim()); if(o.name&&o.roll){students.push({id:Date.now()+i,name:o.name,roll:o.roll,room:o.room||'',bed:o.bed||'',batch:o.batch||'',mobile:o.mobile||''});}} save(); alert('Imported '+lines.length+' students'); renderStudents();}; reader.readAsText(file);}
+function exportCSV(){let csv='name,roll,room,bed,batch,mobile\n'+students.map(s=>`${s.name},${s.roll},${s.room},${s.bed},${s.batch},${s.mobile}`).join('\n'); let blob=new Blob([csv],{type:'text/csv'}); let a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download='hostel_500.csv'; a.click();}
+
+function renderMeals(){let date=document.getElementById('m-date').value; let day=meals[date]||{}; let filtered=students.slice(0,80); document.getElementById('m-body').innerHTML=filtered.map(s=>{let m=day[s.id]||{b:1,l:1,d:1,e:0}; return `<tr><td>${s.room} ${s.roll}<br><small>${s.name}</small></td><td><input type="checkbox" id="b_${s.id}" ${m.b?'checked':''}></td><td><input type="checkbox" id="l_${s.id}" ${m.l?'checked':''}></td><td><input type="checkbox" id="d_${s.id}" ${m.d?'checked':''}></td><td><input type="number" id="e_${s.id}" value="${m.e}" style="width:45px"></td></tr>`}).join('');}
+function saveMeals(){let date=document.getElementById('m-date').value; meals[date]=meals[date]||{}; students.slice(0,80).forEach(s=>{meals[date][s.id]={b:document.getElementById('b_'+s.id).checked?1:0,l:document.getElementById('l_'+s.id).checked?1:0,d:document.getElementById('d_'+s.id).checked?1:0,e:parseInt(document.getElementById('e_'+s.id).value)||0}}); save(); alert('Meals saved for '+date);}
+function renderBilling(){let month=document.getElementById('m-month').value; let totals={}; Object.keys(meals).forEach(d=>{if(d.startsWith(month)){Object.entries(meals[d]).forEach(([sid,m])=>{totals[sid]=(totals[sid]||0)+(m.b+m.l+m.d+m.e)*settings.rate})}}); let html=`<b>💰 Billing - ${month} - Rate ${settings.rate} ${settings.curr}</b><table><tr><th>Student</th><th>Total Meals</th><th>Bill</th></tr>`; students.forEach(s=>{if(totals[s.id]){html+=`<tr><td>${s.roll} ${s.name}</td><td>-</td><td><b>${totals[s.id]} ${settings.curr}</b></td></tr>`}}); html+=`</table><small>Formula: (B+L+D+Extra) x Rate</small>`; document.getElementById('bill-area').innerHTML=html;}
+
+function renderAtt(){let date=document.getElementById('a-date').value; let day=att[date]||{}; document.getElementById('a-body').innerHTML=students.slice(0,100).map(s=>`<tr><td>${s.room}-${s.roll}<br>${s.name}</td><td><select id="a_${s.id}"><option ${day[s.id]=='Present'?'selected':''}>Present</option><option ${day[s.id]=='Absent'?'selected':''}>Absent</option><option>Leave</option></select></td></tr>`).join('');}
+function saveAtt(){let date=document.getElementById('a-date').value; att[date]=att[date]||{}; students.slice(0,100).forEach(s=>{att[date][s.id]=document.getElementById('a_'+s.id).value}); save(); alert('Attendance saved');}
+
+function saveSettings(){settings.rate=parseInt(document.getElementById('set-rate').value)||60; settings.curr=document.getElementById('set-curr').value; settings.hname=document.getElementById('set-hname').value; save(); alert('Saved'); updateHome();}
+
+updateHome(); renderStudents();
+</script>
+</body>
+</html>
